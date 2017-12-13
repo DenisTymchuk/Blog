@@ -3,6 +3,7 @@ package com.company.dao;
 import com.company.entity.Category;
 import com.company.entity.Post;
 
+import java.io.Closeable;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -18,21 +19,26 @@ public class CategoryDAO implements ICategoryDAO {
     public Category findByID(long id) throws SQLException {
         Category category = null;
         String sql = "SELECT FROM category WHERE id = ?";
-        PreparedStatement preparedStatement;
         ResultSet rs;
 
-        preparedStatement = DBConnection.getConnection().prepareStatement(sql);
-        preparedStatement.setLong(1, id);
-        rs = preparedStatement.executeQuery();
+        try (PreparedStatement preparedStatement = DBConnection.getConnection().prepareStatement(sql)) {
+            preparedStatement.setLong(1, id);
+            rs = preparedStatement.executeQuery();
 
-        while (rs.next()) {
-            category = new Category();
-            category.setId(id);
-            category.setName(rs.getString("name"));
+            while (rs.next()) {
+                category = new Category();
+                category.setId(id);
+                category.setName(rs.getString("name"));
+            }
         }
-        preparedStatement.close();
         rs.close();
         return category;
+    }
+
+    static void close(Closeable in) {
+        try {
+            in.close();
+        } catch (Exception e) {}
     }
 
     @Override

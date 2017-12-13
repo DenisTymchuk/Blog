@@ -32,7 +32,7 @@ public class PostsServlet extends HttpServlet {
         response.setCharacterEncoding("UTF-8");
         request.setCharacterEncoding("UTF-8");
         PostService postService = new PostService();
-        List<Post> posts = new LinkedList<>();
+        List<Post> posts = null;
         Map<Integer, List<Post>> map = new HashMap<>();
         int numberOfPages = 1;
 

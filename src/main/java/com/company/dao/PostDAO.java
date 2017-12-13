@@ -3,6 +3,7 @@ package com.company.dao;
 import com.company.entity.Category;
 import com.company.entity.Post;
 import com.company.entity.User;
+import com.sun.org.apache.xpath.internal.operations.Bool;
 
 import java.sql.*;
 import java.text.SimpleDateFormat;
@@ -293,49 +294,82 @@ public class PostDAO implements IPostDAO {
     @Override
     public Map<Integer, List<Post>> getPostsByParameters(String searchLine, String sortLine, int currentPage,
                                                          User loginedUser, int numberOfPostsPerPage) throws SQLException {
-        String sql;
-        PreparedStatement preparedStatement;
-        ResultSet rs = null;
+        String sql = "";
+        PreparedStatement preparedStatement = null;
         Map<Integer, List<Post>> result = new HashMap<>();
         List<Post> listResult = new LinkedList<>();
         Integer numberOfPosts = 0;
 
-        if (sortLine == null || sortLine.equals("") || sortLine.equals("default")) {
-            sql = "SELECT * FROM post WHERE (LOWER(tittle) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?)) " +
-                    "AND published=true ORDER BY date_of_the_post DESC LIMIT ? OFFSET ?";
-            preparedStatement = DBConnection.getConnection().prepareStatement(sql);
-            preparedStatement.setString(1, "%" + searchLine + "%");
-            preparedStatement.setString(2, "%" + searchLine + "%");
-            preparedStatement.setInt(3, numberOfPostsPerPage);
-            preparedStatement.setInt(4, (currentPage * numberOfPostsPerPage) - numberOfPostsPerPage);
-            rs = preparedStatement.executeQuery();
-        } else if (sortLine.equals("firstMy")) {
-            sql = "SELECT *, user_creator_id=? AS col FROM post WHERE (LOWER(tittle) LIKE LOWER(?) OR LOWER(description) " +
-                    "LIKE LOWER(?)) AND published=true ORDER BY col DESC, date_of_the_post DESC LIMIT ? OFFSET ?";
-            preparedStatement = DBConnection.getConnection().prepareStatement(sql);
-            preparedStatement.setLong(1, loginedUser.getId());
-            preparedStatement.setString(2, "%" + searchLine + "%");
-            preparedStatement.setString(3, "%" + searchLine + "%");
-            preparedStatement.setInt(4, numberOfPostsPerPage);
-            preparedStatement.setInt(5, (currentPage * numberOfPostsPerPage) - numberOfPostsPerPage);
-            rs = preparedStatement.executeQuery();
-        } else if (sortLine.equals("lastMy")) {
-            sql = "SELECT *, user_creator_id=? AS col FROM post WHERE (LOWER(tittle) LIKE LOWER(?) OR LOWER(description) " +
-                    "LIKE LOWER(?)) AND published=true ORDER BY col ASC, date_of_the_post DESC LIMIT ? OFFSET ?";
-            preparedStatement = DBConnection.getConnection().prepareStatement(sql);
-            preparedStatement.setLong(1, loginedUser.getId());
-            preparedStatement.setString(2, "%" + searchLine + "%");
-            preparedStatement.setString(3, "%" + searchLine + "%");
-            preparedStatement.setInt(4, numberOfPostsPerPage);
-            preparedStatement.setInt(5, (currentPage * numberOfPostsPerPage) - numberOfPostsPerPage);
-            rs = preparedStatement.executeQuery();
+        class QueryBuilder {
+            private Boolean firstMy = false;
+            private Boolean lastMy = false;
+            private Boolean searchLineExist = false;
+
+            public ResultSet build() throws SQLException {
+                PreparedStatement preparedStatement;
+                int paramIndex = 1;
+                StringBuilder builder = new StringBuilder("SELECT * ");
+                if (firstMy || lastMy) {
+                    builder.append(", user_creator_id=? AS col ");
+                }
+                builder.append(" FROM post WHERE published=true ");
+                if (searchLineExist) {
+                    builder.append(" AND LOWER(tittle) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?)) ");
+                }
+                builder.append(" ORDER BY ");
+                if (firstMy) {
+                    builder.append("col DESC, ");
+                }
+                if (lastMy) {
+                    builder.append("col ASC, ");
+                }
+                builder.append(" date_of_the_post DESC LIMIT ? OFFSET ?");
+                preparedStatement = DBConnection.getConnection().prepareStatement(builder.toString());
+                if (firstMy || lastMy) {
+                    preparedStatement.setLong(paramIndex++, loginedUser.getId());
+                }
+                if (searchLineExist) {
+                    preparedStatement.setString(paramIndex++, "%" + searchLine + "%" );
+                    preparedStatement.setString(paramIndex++, "%" + searchLine + "%" );
+                }
+                preparedStatement.setInt(paramIndex++, numberOfPostsPerPage);
+                preparedStatement.setInt(paramIndex++, (currentPage * numberOfPostsPerPage) - numberOfPostsPerPage);
+                return preparedStatement.executeQuery();
+            }
+
+            public void setSearchLineExist(boolean searchLineExist) {
+                this.searchLineExist = searchLineExist;
+            }
+
+            public void setFirstMy(boolean firstMy) {
+                this.firstMy = firstMy;
+            }
+
+            public void setLastMy(boolean lastMy) {
+                this.lastMy = lastMy;
+            }
         }
 
-        while (rs.next()) {
-            Post post = new Post();
-            post = findByID(rs.getLong("id"));
-            post.setCategories(categoryDAO.findCategoriesByPost(post));
-            listResult.add(post);
+        QueryBuilder qb = new QueryBuilder();
+        if (sortLine != null) {
+            if (sortLine.equals("firstMy")) {
+                qb.setFirstMy(true);
+
+            } else if (sortLine.equals("lastMy")) {
+                qb.setLastMy(true);
+            }
+        }
+        if (!searchLine.equals("")) {
+            qb.setSearchLineExist(true);
+        }
+
+        try (ResultSet rs = qb.build()) {
+            while (rs.next()) {
+                Post post = new Post();
+                post = findByID(rs.getLong("id"));
+                post.setCategories(categoryDAO.findCategoriesByPost(post));
+                listResult.add(post);
+            }
         }
         
         sql = "SELECT COUNT(*) FROM post WHERE (LOWER(tittle) LIKE LOWER(?) OR LOWER(description) " +
@@ -343,9 +377,10 @@ public class PostDAO implements IPostDAO {
         preparedStatement = DBConnection.getConnection().prepareStatement(sql);
         preparedStatement.setString(1, "%" + searchLine + "%");
         preparedStatement.setString(2, "%" + searchLine + "%");
-        rs = preparedStatement.executeQuery();
-        while (rs.next()) {
-            numberOfPosts = rs.getInt(1);
+        try (ResultSet rs = preparedStatement.executeQuery();) {
+            while (rs.next()) {
+                numberOfPosts = rs.getInt(1);
+            }
         }
 
         result.put(numberOfPosts, listResult);
